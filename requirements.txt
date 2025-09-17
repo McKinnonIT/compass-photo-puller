@@ -1,0 +1,5 @@
+requests>=2.32.0
+cloudscraper>=1.2.71
+beautifulsoup4>=4.13.5
+python-dotenv>=1.1.0
+DateTime>=5.5
