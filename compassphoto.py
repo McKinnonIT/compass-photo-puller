@@ -547,11 +547,52 @@ class CompassPhoto:
         print(f"\nCompleted at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 60)
         
-        return {
-            'staff': staff_results,
-            'student': student_results,
-            'duration': duration
-        }
+        # Always combine staff and student maps into a single flat map
+        combined_map = {}
+        
+        if download:
+            # Add staff photos to combined map
+            if isinstance(staff_results, dict) and 'staff_map' in staff_results:
+                combined_map.update(staff_results['staff_map'])
+            
+            # Add student photos to combined map
+            if isinstance(student_results, dict) and 'student_map' in student_results:
+                combined_map.update(student_results['student_map'])
+            
+            # Combine download stats
+            combined_stats = {
+                'total_processed': 0,
+                'downloaded': 0,
+                'updated': 0,
+                'skipped': 0,
+                'failed': 0
+            }
+            
+            if isinstance(staff_results, dict) and 'download_stats' in staff_results:
+                staff_stats = staff_results['download_stats']
+                for key in combined_stats:
+                    combined_stats[key] += staff_stats.get(key, 0)
+            
+            if isinstance(student_results, dict) and 'download_stats' in student_results:
+                student_stats = student_results['download_stats']
+                for key in combined_stats:
+                    combined_stats[key] += student_stats.get(key, 0)
+            
+            return {
+                'photos': combined_map,
+                'download_stats': combined_stats,
+                'duration': duration
+            }
+        else:
+            # Add staff photos to combined map
+            if isinstance(staff_results, dict):
+                combined_map.update(staff_results)
+            
+            # Add student photos to combined map
+            if isinstance(student_results, dict):
+                combined_map.update(student_results)
+            
+            return combined_map
 
 
 # Convenience functions for direct usage
