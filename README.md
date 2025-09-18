@@ -17,6 +17,26 @@ from compassphoto import CompassPhoto
 
 # Initialize with your credentials
 compass = CompassPhoto(username="your_username", password="your_password")
+
+```
+
+## Alternative: Using Environment Variables
+
+Instead of passing credentials directly, you can set environment variables:
+
+```bash
+export COMPASS_USERNAME="your_username"
+export COMPASS_PASSWORD="your_password"
+```
+
+Then use the module without credentials:
+
+```python
+from compassphoto import CompassPhoto
+
+# Uses environment variables
+compass = CompassPhoto()
+staff_urls = compass.get_staff_photos()
 ```
 
 ### 3. Get Photo URLs (Default Behavior)
@@ -154,25 +174,6 @@ staff_urls = compass.get_staff_photos(limit=10)
 
 # Download only first 5 student photos
 student_result = compass.get_student_photos(limit=5, download=True)
-```
-
-## Alternative: Using Environment Variables
-
-Instead of passing credentials directly, you can set environment variables:
-
-```bash
-export COMPASS_USERNAME="your_username"
-export COMPASS_PASSWORD="your_password"
-```
-
-Then use the module without credentials:
-
-```python
-from compassphoto import CompassPhoto
-
-# Uses environment variables
-compass = CompassPhoto()
-staff_urls = compass.get_staff_photos()
 ```
 
 ## Command Line Usage
