@@ -320,19 +320,20 @@ class CompassPhoto:
             'failed': failed
         }
     
-    def get_staff_photos(self, limit=None, custom_dir=None):
+    def get_staff_photos(self, limit=None, custom_dir=None, download=False):
         """
-        Download staff profile photos.
+        Get staff profile photos.
         
         Args:
-            limit (int, optional): Limit number of photos to download
-            custom_dir (str, optional): Custom directory to save photos
+            limit (int, optional): Limit number of photos to process
+            custom_dir (str, optional): Custom directory to save photos (if download=True)
+            download (bool): Whether to download photos or just return URLs (default: False)
             
         Returns:
-            dict: Download statistics
+            dict: JSON map of {"CODE": "URL"} or download statistics if download=True
         """
         print("=" * 50)
-        print("DOWNLOADING STAFF PHOTOS")
+        print("GETTING STAFF PHOTOS")
         print("=" * 50)
         
         # Get authenticated session
@@ -356,26 +357,43 @@ class CompassPhoto:
         
         print(f"Found {len(staff_with_photos)} staff members with profile photos")
         
-        # Download photos
-        photos_dir = custom_dir or self.staff_dir
-        os.makedirs(photos_dir, exist_ok=True)
+        # Apply limit if specified
+        if limit:
+            staff_with_photos = staff_with_photos[:limit]
         
-        return self.download_photos(staff_with_photos, photos_dir, "staff photos", limit)
+        # Create JSON map of CODE -> URL
+        base_url = "https://mckinnonsc-vic.compass.education/download/secure/cdn/full/"
+        staff_map = {}
+        for staff in staff_with_photos:
+            staff_map[staff['displayCode']] = base_url + staff['pv']
+        
+        # If download is requested, download the photos
+        if download:
+            photos_dir = custom_dir or self.staff_dir
+            os.makedirs(photos_dir, exist_ok=True)
+            download_stats = self.download_photos(staff_with_photos, photos_dir, "staff photos", limit)
+            return {
+                'staff_map': staff_map,
+                'download_stats': download_stats
+            }
+        
+        return staff_map
     
-    def get_student_photos(self, limit=None, custom_dir=None, save_debug=False):
+    def get_student_photos(self, limit=None, custom_dir=None, save_debug=False, download=False):
         """
-        Download student profile photos.
+        Get student profile photos.
         
         Args:
-            limit (int, optional): Limit number of photos to download
-            custom_dir (str, optional): Custom directory to save photos
+            limit (int, optional): Limit number of photos to process
+            custom_dir (str, optional): Custom directory to save photos (if download=True)
             save_debug (bool): Save API response for debugging
+            download (bool): Whether to download photos or just return URLs (default: False)
             
         Returns:
-            dict: Download statistics
+            dict: JSON map of {"CODE": "URL"} or download statistics if download=True
         """
         print("=" * 50)
-        print("DOWNLOADING STUDENT PHOTOS")
+        print("GETTING STUDENT PHOTOS")
         print("=" * 50)
         
         # Get authenticated session
@@ -415,26 +433,43 @@ class CompassPhoto:
         
         print(f"Found {len(students_with_photos)} students with profile photos")
         
-        # Download photos
-        photos_dir = custom_dir or self.student_dir
-        os.makedirs(photos_dir, exist_ok=True)
+        # Apply limit if specified
+        if limit:
+            students_with_photos = students_with_photos[:limit]
         
-        return self.download_photos(students_with_photos, photos_dir, "student photos", limit)
+        # Create JSON map of CODE -> URL
+        base_url = "https://mckinnonsc-vic.compass.education/download/secure/cdn/full/"
+        student_map = {}
+        for student in students_with_photos:
+            student_map[student['displayCode']] = base_url + student['pv']
+        
+        # If download is requested, download the photos
+        if download:
+            photos_dir = custom_dir or self.student_dir
+            os.makedirs(photos_dir, exist_ok=True)
+            download_stats = self.download_photos(students_with_photos, photos_dir, "student photos", limit)
+            return {
+                'student_map': student_map,
+                'download_stats': download_stats
+            }
+        
+        return student_map
     
     def get_all_photos(self, staff_limit=None, student_limit=None, 
-                      staff_dir=None, student_dir=None, save_debug=False):
+                      staff_dir=None, student_dir=None, save_debug=False, download=False):
         """
-        Download both staff and student photos.
+        Get both staff and student photos.
         
         Args:
             staff_limit (int, optional): Limit number of staff photos
             student_limit (int, optional): Limit number of student photos
-            staff_dir (str, optional): Custom directory for staff photos
-            student_dir (str, optional): Custom directory for student photos
+            staff_dir (str, optional): Custom directory for staff photos (if download=True)
+            student_dir (str, optional): Custom directory for student photos (if download=True)
             save_debug (bool): Save debug files for student photos
+            download (bool): Whether to download photos or just return URLs (default: False)
             
         Returns:
-            dict: Combined download statistics
+            dict: Combined JSON maps and/or download statistics
         """
         print("=" * 60)
         print("    COMPASS PHOTO DOWNLOADER - ALL USERS")
@@ -443,11 +478,11 @@ class CompassPhoto:
         
         start_time = datetime.now()
         
-        # Download staff photos
-        staff_results = self.get_staff_photos(limit=staff_limit, custom_dir=staff_dir)
+        # Get staff photos
+        staff_results = self.get_staff_photos(limit=staff_limit, custom_dir=staff_dir, download=download)
         
-        # Download student photos
-        student_results = self.get_student_photos(limit=student_limit, custom_dir=student_dir, save_debug=save_debug)
+        # Get student photos
+        student_results = self.get_student_photos(limit=student_limit, custom_dir=student_dir, save_debug=save_debug, download=download)
         
         # Print summary
         end_time = datetime.now()
@@ -459,36 +494,55 @@ class CompassPhoto:
         print(f"Total Duration: {duration}")
         print()
         
-        print("STAFF PHOTOS:")
-        if staff_results:
-            print(f"  Total processed: {staff_results['total_processed']}")
-            print(f"  New downloads: {staff_results['downloaded']}")
-            print(f"  Updated photos: {staff_results['updated']}")
-            print(f"  Skipped (up-to-date): {staff_results['skipped']}")
-            print(f"  Failed: {staff_results['failed']}")
-        
-        print("\nSTUDENT PHOTOS:")
-        if student_results:
-            print(f"  Total processed: {student_results['total_processed']}")
-            print(f"  New downloads: {student_results['downloaded']}")
-            print(f"  Updated photos: {student_results['updated']}")
-            print(f"  Skipped (up-to-date): {student_results['skipped']}")
-            print(f"  Failed: {student_results['failed']}")
-        
-        # Calculate totals
-        if staff_results and student_results:
-            total_processed = staff_results['total_processed'] + student_results['total_processed']
-            total_downloaded = staff_results['downloaded'] + student_results['downloaded']
-            total_updated = staff_results['updated'] + student_results['updated']
-            total_skipped = staff_results['skipped'] + student_results['skipped']
-            total_failed = staff_results['failed'] + student_results['failed']
+        # Handle different return formats based on download parameter
+        if download:
+            # Both results contain download statistics
+            print("STAFF PHOTOS:")
+            if staff_results and 'download_stats' in staff_results:
+                stats = staff_results['download_stats']
+                print(f"  Total processed: {stats['total_processed']}")
+                print(f"  New downloads: {stats['downloaded']}")
+                print(f"  Updated photos: {stats['updated']}")
+                print(f"  Skipped (up-to-date): {stats['skipped']}")
+                print(f"  Failed: {stats['failed']}")
             
-            print("\nOVERALL TOTALS:")
-            print(f"  Total processed: {total_processed}")
-            print(f"  New downloads: {total_downloaded}")
-            print(f"  Updated photos: {total_updated}")
-            print(f"  Skipped (up-to-date): {total_skipped}")
-            print(f"  Failed: {total_failed}")
+            print("\nSTUDENT PHOTOS:")
+            if student_results and 'download_stats' in student_results:
+                stats = student_results['download_stats']
+                print(f"  Total processed: {stats['total_processed']}")
+                print(f"  New downloads: {stats['downloaded']}")
+                print(f"  Updated photos: {stats['updated']}")
+                print(f"  Skipped (up-to-date): {stats['skipped']}")
+                print(f"  Failed: {stats['failed']}")
+            
+            # Calculate totals for download stats
+            if (staff_results and 'download_stats' in staff_results and 
+                student_results and 'download_stats' in student_results):
+                staff_stats = staff_results['download_stats']
+                student_stats = student_results['download_stats']
+                total_processed = staff_stats['total_processed'] + student_stats['total_processed']
+                total_downloaded = staff_stats['downloaded'] + student_stats['downloaded']
+                total_updated = staff_stats['updated'] + student_stats['updated']
+                total_skipped = staff_stats['skipped'] + student_stats['skipped']
+                total_failed = staff_stats['failed'] + student_stats['failed']
+                
+                print("\nOVERALL TOTALS:")
+                print(f"  Total processed: {total_processed}")
+                print(f"  New downloads: {total_downloaded}")
+                print(f"  Updated photos: {total_updated}")
+                print(f"  Skipped (up-to-date): {total_skipped}")
+                print(f"  Failed: {total_failed}")
+        else:
+            # Both results are JSON maps
+            print("STAFF PHOTOS:")
+            if staff_results:
+                print(f"  Found {len(staff_results)} staff members with photos")
+            
+            print("\nSTUDENT PHOTOS:")
+            if student_results:
+                print(f"  Found {len(student_results)} students with photos")
+            
+            print(f"\nTotal photos found: {len(staff_results) + len(student_results)}")
         
         print(f"\nCompleted at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 60)
@@ -501,24 +555,24 @@ class CompassPhoto:
 
 
 # Convenience functions for direct usage
-def get_staff_photos(username, password, limit=None, custom_dir=None):
-    """Convenience function to download staff photos"""
+def get_staff_photos(username, password, limit=None, custom_dir=None, download=False):
+    """Convenience function to get staff photos"""
     compass = CompassPhoto(username, password)
-    return compass.get_staff_photos(limit=limit, custom_dir=custom_dir)
+    return compass.get_staff_photos(limit=limit, custom_dir=custom_dir, download=download)
 
 
-def get_student_photos(username, password, limit=None, custom_dir=None, save_debug=False):
-    """Convenience function to download student photos"""
+def get_student_photos(username, password, limit=None, custom_dir=None, save_debug=False, download=False):
+    """Convenience function to get student photos"""
     compass = CompassPhoto(username, password)
-    return compass.get_student_photos(limit=limit, custom_dir=custom_dir, save_debug=save_debug)
+    return compass.get_student_photos(limit=limit, custom_dir=custom_dir, save_debug=save_debug, download=download)
 
 
 def get_all_photos(username, password, staff_limit=None, student_limit=None, 
-                  staff_dir=None, student_dir=None, save_debug=False):
-    """Convenience function to download all photos"""
+                  staff_dir=None, student_dir=None, save_debug=False, download=False):
+    """Convenience function to get all photos"""
     compass = CompassPhoto(username, password)
     return compass.get_all_photos(staff_limit=staff_limit, student_limit=student_limit,
-                                 staff_dir=staff_dir, student_dir=student_dir, save_debug=save_debug)
+                                 staff_dir=staff_dir, student_dir=student_dir, save_debug=save_debug, download=download)
 
 
 if __name__ == "__main__":
@@ -526,18 +580,26 @@ if __name__ == "__main__":
     import sys
     
     if len(sys.argv) < 3:
-        print("Usage: python compassphoto.py <username> <password> [staff|student|all]")
+        print("Usage: python compassphoto.py <username> <password> [staff|student|all] [download]")
+        print("  download: optional, set to 'true' to download photos, defaults to false (URLs only)")
         sys.exit(1)
     
     username = sys.argv[1]
     password = sys.argv[2]
     mode = sys.argv[3] if len(sys.argv) > 3 else "all"
+    download = len(sys.argv) > 4 and sys.argv[4].lower() == 'true'
     
     compass = CompassPhoto(username, password)
     
     if mode == "staff":
-        compass.get_staff_photos()
+        result = compass.get_staff_photos(download=download)
+        if not download:
+            print(f"Staff photo URLs: {result}")
     elif mode == "student":
-        compass.get_student_photos()
+        result = compass.get_student_photos(download=download)
+        if not download:
+            print(f"Student photo URLs: {result}")
     else:
-        compass.get_all_photos()
+        result = compass.get_all_photos(download=download)
+        if not download:
+            print(f"All photo URLs: {result}")
