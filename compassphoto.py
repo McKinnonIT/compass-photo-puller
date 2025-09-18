@@ -576,30 +576,45 @@ def get_all_photos(username, password, staff_limit=None, student_limit=None,
 
 
 if __name__ == "__main__":
-    # Example usage when run directly
+    # Command line usage when run directly
     import sys
     
-    if len(sys.argv) < 3:
-        print("Usage: python compassphoto.py <username> <password> [staff|student|all] [download]")
+    # If no arguments provided, use environment variables and run get_all_photos
+    if len(sys.argv) == 1:
+        print("Running with environment variables...")
+        try:
+            compass = CompassPhoto()  # Uses environment variables
+            result = compass.get_all_photos()
+            print(f"All photo URLs: {result}")
+        except ValueError as e:
+            print(f"Error: {e}")
+            print("Please set COMPASS_USERNAME and COMPASS_PASSWORD environment variables")
+            print("Or provide credentials as command line arguments")
+            sys.exit(1)
+    elif len(sys.argv) < 3:
+        print("Usage: python compassphoto.py [<username> <password> [staff|student|all] [download]]")
+        print("  No arguments: Uses environment variables and runs get_all_photos()")
+        print("  With arguments: Uses provided credentials")
         print("  download: optional, set to 'true' to download photos, defaults to false (URLs only)")
         sys.exit(1)
-    
-    username = sys.argv[1]
-    password = sys.argv[2]
-    mode = sys.argv[3] if len(sys.argv) > 3 else "all"
-    download = len(sys.argv) > 4 and sys.argv[4].lower() == 'true'
-    
-    compass = CompassPhoto(username, password)
-    
-    if mode == "staff":
-        result = compass.get_staff_photos(download=download)
-        if not download:
-            print(f"Staff photo URLs: {result}")
-    elif mode == "student":
-        result = compass.get_student_photos(download=download)
-        if not download:
-            print(f"Student photo URLs: {result}")
     else:
-        result = compass.get_all_photos(download=download)
-        if not download:
-            print(f"All photo URLs: {result}")
+        # Use provided credentials
+        username = sys.argv[1]
+        password = sys.argv[2]
+        mode = sys.argv[3] if len(sys.argv) > 3 else "all"
+        download = len(sys.argv) > 4 and sys.argv[4].lower() == 'true'
+        
+        compass = CompassPhoto(username, password)
+        
+        if mode == "staff":
+            result = compass.get_staff_photos(download=download)
+            if not download:
+                print(f"Staff photo URLs: {result}")
+        elif mode == "student":
+            result = compass.get_student_photos(download=download)
+            if not download:
+                print(f"Student photo URLs: {result}")
+        else:
+            result = compass.get_all_photos(download=download)
+            if not download:
+                print(f"All photo URLs: {result}")
