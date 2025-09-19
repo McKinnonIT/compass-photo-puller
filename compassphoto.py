@@ -282,7 +282,7 @@ class CompassPhoto:
                     action_type = "downloaded"
                 
                 # Download the image
-                response = session.get(photo_url, timeout=30)
+                response = self.session.get(photo_url, timeout=30)
                 response.raise_for_status()
                 
                 # Save the image
