@@ -30,24 +30,22 @@ from datetime import datetime
 class CompassPhoto:
     """Unified class for downloading photos from Compass Education"""
     
-    def __init__(self, username: str = None, password: str = None):
+    def __init__(self, username: str = None, password: str = None, base_url: str = None):
         """
         Initialize CompassPhoto with credentials.
         
         Args:
             username (str): Compass username. If None, loads from environment.
             password (str): Compass password. If None, loads from environment.
+            base_url (str): Compass base URL. If None, loads from environment.
         """
-        if username is None or password is None:
-            load_dotenv()
-            self.username = os.getenv("COMPASS_USERNAME")
-            self.password = os.getenv("COMPASS_PASSWORD")
-        else:
-            self.username = username
-            self.password = password
-        
-        if not self.username or not self.password:
-            raise ValueError("Username and password must be provided or set in environment variables")
+        load_dotenv()
+        self.username = username or os.getenv("COMPASS_USERNAME")
+        self.password = password or os.getenv("COMPASS_PASSWORD")
+        self.base_url = base_url or os.getenv("COMPASS_BASE_URL")
+
+        if not self.username or not self.password or not self.base_url:
+            raise ValueError("Username and password and base_url must be provided or set in environment variables")
         
         # Default directories
         self.staff_dir = "compass_photos/staff"
@@ -93,7 +91,7 @@ class CompassPhoto:
 
     def get_authenticated_session(self):
         """Create an authenticated session with Compass"""
-        base_url = "https://mckinnonsc-vic.compass.education"
+        base_url = self.base_url
         session = cloudscraper.create_scraper()
         
         # Get login page first
@@ -139,7 +137,7 @@ class CompassPhoto:
     
     def get_staff_data(self, session):
         """Get staff data from Compass API"""
-        base_url = "https://mckinnonsc-vic.compass.education"
+        base_url = self.base_url
         
         # Navigate to UserNew page to get fresh tokens
         user_new_url = f"{base_url}/Records/UserNew.aspx"
@@ -185,7 +183,7 @@ class CompassPhoto:
     
     def get_student_data(self, session):
         """Get student data from Compass API"""
-        base_url = "https://mckinnonsc-vic.compass.education"
+        base_url = self.base_url
         
         # Navigate to FormGroup page to get fresh tokens
         form_group_url = f"{base_url}/Records/FormGroup.aspx?id=07A"
@@ -242,7 +240,7 @@ class CompassPhoto:
     
     def download_photos(self, people_with_photos, photos_dir, people_type="photos", limit=None):
         """Generic method to download photos for a list of people"""
-        base_url = "https://mckinnonsc-vic.compass.education/download/secure/cdn/full/"
+        base_url = f"{self.base_url}/download/secure/cdn/full/"
         downloaded = 0
         updated = 0
         skipped = 0
@@ -362,7 +360,7 @@ class CompassPhoto:
             staff_with_photos = staff_with_photos[:limit]
         
         # Create JSON map of CODE -> URL
-        base_url = "https://mckinnonsc-vic.compass.education/download/secure/cdn/full/"
+        base_url = f"{self.base_url}/download/secure/cdn/full/"
         staff_map = {}
         for staff in staff_with_photos:
             staff_map[staff['displayCode']] = base_url + staff['pv']
@@ -438,7 +436,7 @@ class CompassPhoto:
             students_with_photos = students_with_photos[:limit]
         
         # Create JSON map of CODE -> URL
-        base_url = "https://mckinnonsc-vic.compass.education/download/secure/cdn/full/"
+        base_url = f"{self.base_url}/download/secure/cdn/full/"
         student_map = {}
         for student in students_with_photos:
             student_map[student['displayCode']] = base_url + student['pv']

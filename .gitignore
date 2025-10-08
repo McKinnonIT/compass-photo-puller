@@ -7,6 +7,7 @@ compass_photos/
 
 # Environment variables
 .env
+run.py
 
 # Python
 __pycache__/
