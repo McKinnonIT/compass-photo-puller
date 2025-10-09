@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compass-photo-puller"
+version = "0.1.0"
+description = "Utilities for downloading staff and student photos from Compass Education"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Oliver Wiles" }]
+license = { text = "Proprietary" }
+dependencies = [
+  "requests>=2.32.0",
+  "cloudscraper>=1.2.71",
+  "beautifulsoup4>=4.13.5",
+  "python-dotenv>=1.1.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["compass_photo*"]
+
+
