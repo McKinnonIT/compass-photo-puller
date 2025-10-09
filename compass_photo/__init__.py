@@ -1,9 +1,4 @@
-#!/usr/bin/env python3
-"""
-Compatibility shim: re-export package API for users importing compassphoto.py directly.
-"""
-
-from compass_photo import (
+from .core import (
     CompassPhoto,
     get_staff_photos,
     get_student_photos,
@@ -16,3 +11,5 @@ __all__ = [
     "get_student_photos",
     "get_all_photos",
 ]
+
+
