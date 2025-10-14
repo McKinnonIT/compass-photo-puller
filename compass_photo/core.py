@@ -389,6 +389,124 @@ class CompassPhoto:
                 combined_map.update(student_results)
             return combined_map
 
+    def get_single_photo(self, display_code, download=False, custom_dir=None):
+        """
+        Get a single photo by display code (staff or student).
+        
+        Args:
+            display_code (str): The display code of the person (e.g., 'ABE', 'ALB0011')
+            download (bool): Whether to download the photo to disk
+            custom_dir (str): Custom directory to save photo (if download=True)
+        
+        Returns:
+            dict: Photo information including URL, name, and optionally download stats
+        """
+        print(f"Looking for photo for display code: {display_code}")
+        
+        # Get authenticated session
+        self.session = self.get_authenticated_session()
+        
+        # First try staff
+        print("Checking staff members...")
+        staff_data = self.get_staff_data(self.session)
+        for staff_member in staff_data.get('d', []):
+            if staff_member.get('displayCode', '').upper() == display_code.upper():
+                pv = staff_member.get('pv', '')
+                if pv and pv.strip():
+                    person_info = {
+                        'name': staff_member.get('n', 'Unknown'),
+                        'displayCode': staff_member.get('displayCode', 'UNKNOWN'),
+                        'pv': pv.strip(),
+                        'type': 'staff'
+                    }
+                    return self._process_single_photo(person_info, download, custom_dir or self.staff_dir)
+        
+        # Then try students
+        print("Checking students...")
+        student_data = self.get_student_data(self.session)
+        student_list = student_data.get('d', []) if 'd' in student_data else (student_data if isinstance(student_data, list) else [student_data])
+        
+        for student in student_list:
+            if student.get('displayCode', '').upper() == display_code.upper():
+                pv = student.get('pv', '') or student.get('photoUrl', '') or student.get('photo', '')
+                if pv and pv.strip():
+                    person_info = {
+                        'name': student.get('n', student.get('name', 'Unknown')),
+                        'displayCode': student.get('displayCode', student.get('code', 'UNKNOWN')),
+                        'pv': pv.strip(),
+                        'type': 'student'
+                    }
+                    return self._process_single_photo(person_info, download, custom_dir or self.student_dir)
+        
+        # Not found
+        print(f"No photo found for display code: {display_code}")
+        return None
+
+    def _process_single_photo(self, person_info, download, photos_dir):
+        """Helper method to process a single photo."""
+        base_url = f"{self.base_url}/download/secure/cdn/full/"
+        photo_url = base_url + person_info['pv']
+        
+        result = {
+            'name': person_info['name'],
+            'displayCode': person_info['displayCode'],
+            'type': person_info['type'],
+            'photo_url': photo_url,
+            'pv': person_info['pv']
+        }
+        
+        if download:
+            print(f"Downloading photo for {person_info['name']} ({person_info['displayCode']})...")
+            os.makedirs(photos_dir, exist_ok=True)
+            
+            # Always download without checking existing files
+            filename = self._generate_filename(person_info)
+            filepath = os.path.join(photos_dir, filename)
+            
+            # Find and remove any existing files that start with the same display code
+            existing_files = glob.glob(os.path.join(photos_dir, f"{person_info['displayCode']}_*.jpg"))
+            for existing_file in existing_files:
+                os.remove(existing_file)
+                existing_filename = os.path.basename(existing_file)
+                print(f"  Removed existing file: {existing_filename}")
+            
+            try:
+                response = self.session.get(photo_url, timeout=30)
+                response.raise_for_status()
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                print(f"  [OK] Downloaded: {filename}")
+                
+                result['download_stats'] = {
+                    'total_processed': 1,
+                    'downloaded': 1,
+                    'updated': 0,
+                    'skipped': 0,
+                    'failed': 0
+                }
+                result['file_path'] = filepath
+            except Exception as e:
+                print(f"  [ERROR] Failed to download: {e}")
+                result['download_stats'] = {
+                    'total_processed': 1,
+                    'downloaded': 0,
+                    'updated': 0,
+                    'skipped': 0,
+                    'failed': 1
+                }
+        else:
+            print(f"Found photo for {person_info['name']} ({person_info['displayCode']})")
+            print(f"URL: {photo_url}")
+        
+        return result
+
+    def _generate_filename(self, person_info):
+        """Generate filename for a person's photo."""
+        safe_name = "".join(c for c in person_info['displayCode'] if c.isalnum() or c in (' ', '-', '_')).strip()
+        timestamp = self.extract_timestamp_from_pv(person_info['pv']) or "unknown"
+        guid = person_info['pv'][:8]
+        return f"{safe_name}_{guid}_{timestamp}.jpg"
+
 
 def get_staff_photos(username, password, limit=None, custom_dir=None, download=False, base_url=None):
     compass = CompassPhoto(username, password, base_url=base_url)
@@ -405,5 +523,24 @@ def get_all_photos(username, password, staff_limit=None, student_limit=None,
     compass = CompassPhoto(username, password, base_url=base_url)
     return compass.get_all_photos(staff_limit=staff_limit, student_limit=student_limit,
                                  staff_dir=staff_dir, student_dir=student_dir, save_debug=save_debug, download=download)
+
+
+def get_single_photo(username, password, display_code, download=False, custom_dir=None, base_url=None):
+    """
+    Get a single photo by display code (staff or student).
+    
+    Args:
+        username (str): Compass username
+        password (str): Compass password
+        display_code (str): The display code of the person (e.g., 'ABE', 'ALB0011')
+        download (bool): Whether to download the photo to disk
+        custom_dir (str): Custom directory to save photo (if download=True)
+        base_url (str): Compass base URL
+    
+    Returns:
+        dict: Photo information including URL, name, and optionally download stats
+    """
+    compass = CompassPhoto(username, password, base_url=base_url)
+    return compass.get_single_photo(display_code, download=download, custom_dir=custom_dir)
 
 
