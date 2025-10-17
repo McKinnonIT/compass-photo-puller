@@ -3,6 +3,7 @@ from .core import (
     get_staff_photos,
     get_student_photos,
     get_all_photos,
+    get_single_photo,
 )
 
 __all__ = [
@@ -10,6 +11,7 @@ __all__ = [
     "get_staff_photos",
     "get_student_photos",
     "get_all_photos",
+    "get_single_photo",
 ]
 
 

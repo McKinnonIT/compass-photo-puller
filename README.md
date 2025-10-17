@@ -1,45 +1,48 @@
-# CompassPhoto Module
+# Compass Photo Puller
 
-A unified Python module for getting staff and student profile photo URLs from Compass Education, with optional photo downloading.
+A unified Python package for getting staff and student profile photo URLs from Compass Education, with optional photo downloading. This tool provides both programmatic access via Python classes/functions and command-line interface for easy photo management.
 
 ## Quick Start
 
-### 1. Install Requirements
+### 1. Installation
+
+You can install this package in development mode:
+
+```bash
+git clone <repository-url>
+cd compass_photo_puller
+pip install -e .
+```
+
+Or install the dependencies directly:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Initialize the Class with Username and Password
+### 2. Set Up Environment Variables
 
-```python
-from compassphoto import CompassPhoto
-
-# Initialize with your credentials
-compass = CompassPhoto(username="your_username", password="your_password")
-
-```
-
-## Alternative: Using Environment Variables
-
-Instead of passing credentials directly, you can set environment variables:
+Create a `.env` file in your project directory:
 
 ```bash
-export COMPASS_USERNAME="your_username"
-export COMPASS_PASSWORD="your_password"
+COMPASS_USERNAME=your_username
+COMPASS_PASSWORD=your_password
+COMPASS_BASE_URL=https://your-school.compass.education
 ```
 
-Then use the module without credentials:
+### 3. Initialize the Class
 
 ```python
-from compassphoto import CompassPhoto
+from compass_photo import CompassPhoto
 
-# Uses environment variables
+# Initialize with your credentials
+compass = CompassPhoto(username="your_username", password="your_password", base_url="https://your-school.compass.education")
+
+# Or use environment variables (recommended)
 compass = CompassPhoto()
-staff_urls = compass.get_staff_photos()
 ```
 
-### 3. Get Photo URLs (Default Behavior)
+### 4. Get Photo URLs (Default Behavior)
 
 ```python
 # Get staff photo URLs (returns JSON map)
@@ -114,6 +117,25 @@ print(f"Downloaded {staff_result['download_stats']['downloaded']} staff photos")
 }
 ```
 
+**Single Photo (get_single_photo):**
+```json
+{
+  "name": "John Smith",
+  "displayCode": "JOHN_SMITH",
+  "type": "staff",
+  "photo_url": "https://mckinnonsc-vic.compass.education/download/secure/cdn/full/guid_12345678_2502250258AM?requestguid=abc123",
+  "pv": "guid_12345678_2502250258AM?requestguid=abc123",
+  "download_stats": {
+    "total_processed": 1,
+    "downloaded": 1,
+    "updated": 0,
+    "skipped": 0,
+    "failed": 0
+  },
+  "file_path": "/path/to/downloaded/photo.jpg"
+}
+```
+
 ### With Download (download=True)
 
 **Staff Photos with Download:**
@@ -166,6 +188,15 @@ student_result = compass.get_student_photos(
 )
 ```
 
+### Get Single Photo
+
+```python
+# Get a single photo by display code (searches both staff and students)
+photo_info = compass.get_single_photo("ABE", download=True)
+print(f"Found: {photo_info['name']} ({photo_info['type']})")
+print(f"URL: {photo_info['photo_url']}")
+```
+
 ### Limit Results (for testing)
 
 ```python
@@ -176,32 +207,21 @@ staff_urls = compass.get_staff_photos(limit=10)
 student_result = compass.get_student_photos(limit=5, download=True)
 ```
 
-## Command Line Usage
-
-```bash
-# Get URLs only (default)
-python compassphoto.py username password staff
-python compassphoto.py username password student
-python compassphoto.py username password all
-
-# Download photos
-python compassphoto.py username password staff true
-python compassphoto.py username password student true
-python compassphoto.py username password all true
-```
-
 ## Convenience Functions
 
 ```python
-from compassphoto import get_staff_photos, get_student_photos, get_all_photos
+from compass_photo import get_staff_photos, get_student_photos, get_all_photos, get_single_photo
 
 # Get URLs only
-staff_urls = get_staff_photos("username", "password")
-student_urls = get_student_photos("username", "password")
+staff_urls = get_staff_photos("username", "password", base_url="https://your-school.compass.education")
+student_urls = get_student_photos("username", "password", base_url="https://your-school.compass.education")
 
 # Download photos
-staff_result = get_staff_photos("username", "password", download=True)
-all_result = get_all_photos("username", "password", download=True)
+staff_result = get_staff_photos("username", "password", download=True, base_url="https://your-school.compass.education")
+all_result = get_all_photos("username", "password", download=True, base_url="https://your-school.compass.education")
+
+# Get a single photo by display code
+photo_info = get_single_photo("username", "password", "ABE", download=True, base_url="https://your-school.compass.education")
 ```
 
 ## Method Parameters
@@ -225,6 +245,11 @@ all_result = get_all_photos("username", "password", download=True)
 - `save_debug`: Save debug files for student photos
 - `download`: Whether to download photos or just return URLs (default: False)
 
+### get_single_photo(display_code, download=False, custom_dir=None)
+- `display_code`: The display code of the person (e.g., 'ABE', 'ALB0011')
+- `download`: Whether to download the photo to disk (default: False)
+- `custom_dir`: Custom directory to save photo (if download=True)
+
 ## Features
 
 - **JSON Maps**: Returns clean `{"CODE": "URL"}` mappings by default
@@ -232,5 +257,25 @@ all_result = get_all_photos("username", "password", download=True)
 - **Smart Updates**: Only downloads changed photos based on timestamps
 - **Progress Tracking**: Real-time progress updates when downloading
 - **Error Handling**: Robust error handling with detailed reporting
-- **Flexible**: Class-based, function-based, and command-line usage
+- **Flexible Usage**: Class-based, function-based, and command-line interfaces
+- **Single Photo Lookup**: Find individual photos by display code across staff and students
+- **Environment Configuration**: Secure credential management via environment variables
 - **Ready-to-Use URLs**: URLs include authentication and are ready for downloading
+- **Compass Education Integration**: Direct integration with Compass Education API endpoints
+
+## Package Structure
+
+```
+compass_photo_puller/
+├── compass_photo/
+│   ├── __init__.py          # Package exports
+│   └── core.py              # Main CompassPhoto class and functions
+├── compass_photos/          # Downloaded photos directory
+│   ├── staff/               # Staff photos
+│   └── students/            # Student photos
+├── compassphoto.py          # Legacy compatibility shim
+├── run.py                   # Simple test script
+├── requirements.txt         # Python dependencies
+├── pyproject.toml          # Package configuration
+└── README.md               # This file
+```

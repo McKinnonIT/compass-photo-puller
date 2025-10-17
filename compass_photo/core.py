@@ -542,5 +542,3 @@ def get_single_photo(username, password, display_code, download=False, custom_di
     """
     compass = CompassPhoto(username, password, base_url=base_url)
     return compass.get_single_photo(display_code, download=download, custom_dir=custom_dir)
-
-
