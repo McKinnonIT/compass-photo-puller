@@ -9,7 +9,6 @@ all_photos_urls.json
 
 # Environment variables
 .env
-run.py
 
 # Python
 __pycache__/
