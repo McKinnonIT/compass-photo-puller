@@ -3,6 +3,8 @@
 
 import json
 import os
+from datetime import datetime
+
 from compass_photo import CompassPhoto
 
 
@@ -14,16 +16,42 @@ def main():
     compass = CompassPhoto()
 
     print(f"Fetching and downloading ALL photos to {photos_dir}/...")
-    result = compass.get_all_photos(
+    start_time = datetime.now()
+
+    # Auth once, then get staff and students with the same session
+    print("Authenticating with Compass...")
+    compass.session = compass.get_authenticated_session()
+
+    print("Getting staff...")
+    staff_results = compass.get_staff_photos(
         download=True,
-        staff_dir=photos_dir,
-        student_dir=photos_dir,
+        custom_dir=photos_dir,
+        use_existing_session=True,
+    )
+    compass._human_delay(5, 2)  # Pause before student phase (human-like)
+    print("Getting students...")
+    student_results = compass.get_student_photos(
+        download=True,
+        custom_dir=photos_dir,
+        use_existing_session=True,
     )
 
-    duration = result.get("duration", "N/A")
-    # When download=True: result has "photos" (combined), "download_stats", "duration"
-    photos = result.get("photos") or {**result.get("staff", {}), **result.get("student", {})}
-    download_stats = result.get("download_stats", {})
+    end_time = datetime.now()
+    duration = end_time - start_time
+
+    # Build combined result (same shape as get_all_photos when download=True)
+    staff_map = staff_results.get("staff_map", staff_results) if isinstance(staff_results, dict) else staff_results
+    student_map = student_results.get("student_map", student_results) if isinstance(student_results, dict) else student_results
+    photos = {**staff_map, **student_map}
+    staff_stats = staff_results.get("download_stats", {}) if isinstance(staff_results, dict) else {}
+    student_stats = student_results.get("download_stats", {}) if isinstance(student_results, dict) else {}
+    download_stats = {
+        "total_processed": staff_stats.get("total_processed", 0) + student_stats.get("total_processed", 0),
+        "downloaded": staff_stats.get("downloaded", 0) + student_stats.get("downloaded", 0),
+        "updated": staff_stats.get("updated", 0) + student_stats.get("updated", 0),
+        "skipped": staff_stats.get("skipped", 0) + student_stats.get("skipped", 0),
+        "failed": staff_stats.get("failed", 0) + student_stats.get("failed", 0),
+    }
 
     total = len(photos)
     print(f"\nTotal photos: {total}")

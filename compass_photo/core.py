@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import json
 import os
-import time
+import random
 import re
 import glob
+import time
 from datetime import datetime
 
 import cloudscraper
@@ -26,6 +27,11 @@ class CompassPhoto:
             raise ValueError("Base URL must be provided or set in environment variable COMPASS_BASE_URL")
         # Compass API can be slow; default 60s, override with COMPASS_REQUEST_TIMEOUT
         self.request_timeout = int(os.getenv("COMPASS_REQUEST_TIMEOUT", "60"))
+        # Human-like delays (seconds): between API requests, and between each photo download
+        self.request_delay = float(os.getenv("COMPASS_REQUEST_DELAY", "2"))
+        self.request_delay_jitter = float(os.getenv("COMPASS_REQUEST_DELAY_JITTER", "1"))
+        self.download_delay = float(os.getenv("COMPASS_DOWNLOAD_DELAY", "0.25"))
+        self.download_delay_jitter = float(os.getenv("COMPASS_DOWNLOAD_DELAY_JITTER", "0.2"))
         self.staff_dir = "compass_photos/staff"
         self.student_dir = "compass_photos/students"
         os.makedirs(self.staff_dir, exist_ok=True)
@@ -53,8 +59,74 @@ class CompassPhoto:
                 return False, existing_file
         return True, existing_files[0] if existing_files else None
 
+    def _human_delay(self, base_sec=None, jitter_sec=None):
+        """Sleep for base_sec + random jitter to mimic human-like gaps between requests."""
+        base = base_sec if base_sec is not None else self.request_delay
+        jitter = jitter_sec if jitter_sec is not None else self.request_delay_jitter
+        if base <= 0 and jitter <= 0:
+            return
+        sec = base + (random.uniform(0, jitter) if jitter > 0 else 0)
+        if sec > 0:
+            time.sleep(sec)
+
+    def _request_with_retry(self, session, method, url, max_retries=3, retry_delays=(5, 15, 30), delay_before=True, **kwargs):
+        """Run a single request with retries on 403, 429, and timeouts. Optional human-like delay before first attempt."""
+        if delay_before:
+            self._human_delay()
+        def _status(exc):
+            r = getattr(exc, "response", None)
+            return r.status_code if r is not None else None
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                if method.upper() == "GET":
+                    resp = session.get(url, **kwargs)
+                else:
+                    resp = session.post(url, **kwargs)
+                resp.raise_for_status()
+                return resp
+            except requests.exceptions.HTTPError as e:
+                last_error = e
+                status = _status(e)
+                if attempt < max_retries - 1 and status in (403, 429):
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    print(f"  Request returned {status}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    print(f"  Request failed ({type(e).__name__}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+        if last_error is not None:
+            raise last_error
+
+    def _fetch_photo_with_retry(self, photo_url, max_retries=3, retry_delays=(2, 5, 10)):
+        """GET a photo URL with human-like delay before and retries on failure."""
+        self._human_delay(self.download_delay, self.download_delay_jitter)
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(photo_url, timeout=30)
+                response.raise_for_status()
+                return response
+            except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    time.sleep(wait)
+                else:
+                    raise
+        if last_error is not None:
+            raise last_error
+
     def get_authenticated_session(self, max_retries=3, retry_delays=(5, 15, 30), initial_delay=3, post_delay=2):
-        base_url = self.base_url.rstrip("/")
+        # Normalize base URL (no trailing slash) so login URL is never ...//login.aspx
+        base_url = (self.base_url or "").rstrip("/")
         session = cloudscraper.create_scraper()
         login_url = f"{base_url}/login.aspx?sessionstate=disabled"
 
@@ -63,22 +135,45 @@ class CompassPhoto:
             print(f"  Waiting {initial_delay}s before login page...")
             time.sleep(initial_delay)
 
-        # Retry GET login page (403/429 common from WAF or rate-limit in Docker/cloud)
-        last_error = None
+        def _get_status(exc):
+            r = getattr(exc, "response", None)
+            return r.status_code if r is not None else None
+
+        # GET login page (not auth yet - if this fails, it's access/network, not credentials)
+        login_get_response = None
         for attempt in range(max_retries):
             try:
                 login_get_response = session.get(login_url, timeout=self.request_timeout)
                 login_get_response.raise_for_status()
                 break
-            except Exception as e:
-                last_error = e
-                status = getattr(e, "response", None) and getattr(e.response, "status_code", None)
+            except requests.exceptions.HTTPError as e:
+                status = _get_status(e)
                 if attempt < max_retries - 1 and status in (403, 429):
                     wait = retry_delays[min(attempt, len(retry_delays) - 1)]
-                    print(f"  Login page returned {status}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    print(f"  Login page not reachable ({status}) - access/network issue, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                     time.sleep(wait)
+                elif status in (403, 429):
+                    raise RuntimeError(
+                        f"Login page could not be loaded ({status}). "
+                        "This is an access/network issue (e.g. WAF, IP block), not wrong credentials. "
+                        f"Try from school network or check: {login_url}"
+                    ) from e
                 else:
                     raise
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    print(f"  Login page request failed ({type(e).__name__}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise RuntimeError(
+                        "Login page could not be loaded (request failed). "
+                        "This is an access/network issue, not credentials. "
+                        f"URL: {login_url}"
+                    ) from e
+
+        if login_get_response is None:
+            raise RuntimeError("Failed to get login page after retries")
 
         # Wait after loading login page before POST (more human-like)
         if post_delay:
@@ -103,24 +198,33 @@ class CompassPhoto:
             "Origin": base_url,
         }
 
-        # Retry POST login (same 403/429 handling)
+        # POST credentials (this is actual auth; 403 here can still be access or wrong credentials)
+        r = None
         for attempt in range(max_retries):
             try:
                 r = session.post(login_url, data=payload, headers=login_headers, timeout=self.request_timeout)
                 r.raise_for_status()
                 break
-            except Exception as e:
-                last_error = e
-                status = getattr(e, "response", None) and getattr(e.response, "status_code", None)
+            except requests.exceptions.HTTPError as e:
+                status = _get_status(e)
                 if attempt < max_retries - 1 and status in (403, 429):
                     wait = retry_delays[min(attempt, len(retry_delays) - 1)]
-                    print(f"  Login POST returned {status}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    print(f"  Login submit returned {status}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    print(f"  Login submit failed ({type(e).__name__}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                     time.sleep(wait)
                 else:
                     raise
 
+        if r is None:
+            raise RuntimeError("Failed to complete login submit after retries")
         if not ("Home | Compass" in r.text or "productNavBar" in r.text or "Compass.mfeConfig" in r.text):
-            raise Exception("Login failed - no authenticated content found")
+            raise Exception("Login failed - wrong credentials or no authenticated content in response")
         return session
 
     def get_staff_data(self, session):
@@ -134,13 +238,15 @@ class CompassPhoto:
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
-        page_response = session.get(user_new_url, headers=page_headers, timeout=self.request_timeout)
-        page_response.raise_for_status()
-        time.sleep(3)
+        page_response = self._request_with_retry(
+            session, "GET", user_new_url,
+            headers=page_headers, timeout=self.request_timeout,
+        )
+        self._human_delay(3, 1)  # Pause before API call (human-like)
         staff_url = f"{base_url}/Services/ChronicleV2.svc/GetStaff"
         staff_headers = {
             "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate, br, zstd", 
+            "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "en-GB,en;q=0.5",
             "Content-Type": "application/json",
             "Origin": base_url,
@@ -149,17 +255,19 @@ class CompassPhoto:
             "Sec-CH-UA-Mobile": "?1",
             "Sec-CH-UA-Platform": '"Android"',
             "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors", 
+            "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
             "Sec-GPC": "1",
             "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
             "Priority": "u=1, i"
         }
-        staff_response = session.post(staff_url, headers=staff_headers, data="{}", timeout=self.request_timeout)
-        staff_response.raise_for_status()
+        staff_response = self._request_with_retry(
+            session, "POST", staff_url,
+            headers=staff_headers, data="{}", timeout=self.request_timeout,
+        )
         return staff_response.json()
 
-    def get_student_data(self, session, max_retries=3, retry_delay=10):
+    def get_student_data(self, session, max_retries=3, retry_delays=(10, 20, 40)):
         base_url = self.base_url
         form_group_url = f"{base_url}/Records/FormGroup.aspx?id=07A"
         page_headers = {
@@ -177,9 +285,11 @@ class CompassPhoto:
             "Sec-Fetch-Site": "same-origin",
             "Sec-GPC": "1"
         }
-        page_response = session.get(form_group_url, headers=page_headers, timeout=self.request_timeout)
-        page_response.raise_for_status()
-        time.sleep(3)
+        page_response = self._request_with_retry(
+            session, "GET", form_group_url,
+            headers=page_headers, timeout=self.request_timeout,
+        )
+        self._human_delay(3, 1)  # Pause before large API call (human-like)
         students_url = f"{base_url}/Services/User.svc/GetAllStudentsBasic?sessionstate=readonly"
         students_headers = {
             "Accept": "*/*",
@@ -200,20 +310,12 @@ class CompassPhoto:
             "Priority": "u=1, i"
         }
         payload = '{"includePhotos": true}'
-        last_error = None
-        for attempt in range(max_retries):
-            try:
-                students_response = session.post(students_url, headers=students_headers, data=payload, timeout=self.request_timeout)
-                students_response.raise_for_status()
-                return students_response.json()
-            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as e:
-                last_error = e
-                if attempt < max_retries - 1:
-                    print(f"  Compass student data request timed out, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})...")
-                    time.sleep(retry_delay)
-                else:
-                    raise
-        raise last_error
+        students_response = self._request_with_retry(
+            session, "POST", students_url,
+            max_retries=max_retries, retry_delays=retry_delays,
+            headers=students_headers, data=payload, timeout=self.request_timeout,
+        )
+        return students_response.json()
 
     def download_photos(self, people_with_photos, photos_dir, people_type="photos", limit=None):
         base_url = f"{self.base_url}/download/secure/cdn/full/"
@@ -244,8 +346,7 @@ class CompassPhoto:
                 else:
                     print(f"[{i+1}/{total_photos}] Downloading {person['name']} ({person['displayCode']}) - new photo")
                     action_type = "downloaded"
-                response = self.session.get(photo_url, timeout=30)
-                response.raise_for_status()
+                response = self._fetch_photo_with_retry(photo_url)
                 with open(filepath, 'wb') as f:
                     f.write(response.content)
                 if action_type == "updated":
@@ -274,12 +375,15 @@ class CompassPhoto:
             'failed': failed
         }
 
-    def get_staff_photos(self, limit=None, custom_dir=None, download=False):
+    def get_staff_photos(self, limit=None, custom_dir=None, download=False, use_existing_session=False):
         print("=" * 50)
         print("GETTING STAFF PHOTOS")
         print("=" * 50)
-        print("Authenticating with Compass...")
-        self.session = self.get_authenticated_session()
+        if not use_existing_session or not getattr(self, "session", None):
+            print("Authenticating with Compass...")
+            self.session = self.get_authenticated_session()
+        else:
+            print("Using existing session.")
         print("Getting staff data...")
         data = self.get_staff_data(self.session)
         staff_with_photos = []
@@ -308,12 +412,15 @@ class CompassPhoto:
             }
         return staff_map
 
-    def get_student_photos(self, limit=None, custom_dir=None, save_debug=False, download=False):
+    def get_student_photos(self, limit=None, custom_dir=None, save_debug=False, download=False, use_existing_session=False):
         print("=" * 50)
         print("GETTING STUDENT PHOTOS")
         print("=" * 50)
-        print("Authenticating with Compass...")
-        self.session = self.get_authenticated_session()
+        if not use_existing_session or not getattr(self, "session", None):
+            print("Authenticating with Compass...")
+            self.session = self.get_authenticated_session()
+        else:
+            print("Using existing session.")
         print("Getting student data...")
         data = self.get_student_data(self.session)
         if save_debug:
@@ -360,6 +467,7 @@ class CompassPhoto:
         print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         start_time = datetime.now()
         staff_results = self.get_staff_photos(limit=staff_limit, custom_dir=staff_dir, download=download)
+        self._human_delay(5, 2)  # Pause between staff and student phases (human-like)
         student_results = self.get_student_photos(limit=student_limit, custom_dir=student_dir, save_debug=save_debug, download=download)
         end_time = datetime.now()
         duration = end_time - start_time
@@ -525,8 +633,7 @@ class CompassPhoto:
                 print(f"  Removed existing file: {existing_filename}")
             
             try:
-                response = self.session.get(photo_url, timeout=30)
-                response.raise_for_status()
+                response = self._fetch_photo_with_retry(photo_url)
                 with open(filepath, 'wb') as f:
                     f.write(response.content)
                 print(f"  [OK] Downloaded: {filename}")
