@@ -7,6 +7,7 @@ import glob
 from datetime import datetime
 
 import cloudscraper
+import requests
 from bs4 import BeautifulSoup
 
 
@@ -23,6 +24,8 @@ class CompassPhoto:
             raise ValueError("Username and password must be provided or set in environment variables")
         if not self.base_url:
             raise ValueError("Base URL must be provided or set in environment variable COMPASS_BASE_URL")
+        # Compass API can be slow; default 60s, override with COMPASS_REQUEST_TIMEOUT
+        self.request_timeout = int(os.getenv("COMPASS_REQUEST_TIMEOUT", "60"))
         self.staff_dir = "compass_photos/staff"
         self.student_dir = "compass_photos/students"
         os.makedirs(self.staff_dir, exist_ok=True)
@@ -64,7 +67,7 @@ class CompassPhoto:
         last_error = None
         for attempt in range(max_retries):
             try:
-                login_get_response = session.get(login_url, timeout=15)
+                login_get_response = session.get(login_url, timeout=self.request_timeout)
                 login_get_response.raise_for_status()
                 break
             except Exception as e:
@@ -103,7 +106,7 @@ class CompassPhoto:
         # Retry POST login (same 403/429 handling)
         for attempt in range(max_retries):
             try:
-                r = session.post(login_url, data=payload, headers=login_headers, timeout=15)
+                r = session.post(login_url, data=payload, headers=login_headers, timeout=self.request_timeout)
                 r.raise_for_status()
                 break
             except Exception as e:
@@ -131,7 +134,7 @@ class CompassPhoto:
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
-        page_response = session.get(user_new_url, headers=page_headers, timeout=15)
+        page_response = session.get(user_new_url, headers=page_headers, timeout=self.request_timeout)
         page_response.raise_for_status()
         time.sleep(3)
         staff_url = f"{base_url}/Services/ChronicleV2.svc/GetStaff"
@@ -152,11 +155,11 @@ class CompassPhoto:
             "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
             "Priority": "u=1, i"
         }
-        staff_response = session.post(staff_url, headers=staff_headers, data="{}", timeout=15)
+        staff_response = session.post(staff_url, headers=staff_headers, data="{}", timeout=self.request_timeout)
         staff_response.raise_for_status()
         return staff_response.json()
 
-    def get_student_data(self, session):
+    def get_student_data(self, session, max_retries=3, retry_delay=10):
         base_url = self.base_url
         form_group_url = f"{base_url}/Records/FormGroup.aspx?id=07A"
         page_headers = {
@@ -174,7 +177,7 @@ class CompassPhoto:
             "Sec-Fetch-Site": "same-origin",
             "Sec-GPC": "1"
         }
-        page_response = session.get(form_group_url, headers=page_headers, timeout=15)
+        page_response = session.get(form_group_url, headers=page_headers, timeout=self.request_timeout)
         page_response.raise_for_status()
         time.sleep(3)
         students_url = f"{base_url}/Services/User.svc/GetAllStudentsBasic?sessionstate=readonly"
@@ -197,9 +200,20 @@ class CompassPhoto:
             "Priority": "u=1, i"
         }
         payload = '{"includePhotos": true}'
-        students_response = session.post(students_url, headers=students_headers, data=payload, timeout=15)
-        students_response.raise_for_status()
-        return students_response.json()
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                students_response = session.post(students_url, headers=students_headers, data=payload, timeout=self.request_timeout)
+                students_response.raise_for_status()
+                return students_response.json()
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    print(f"  Compass student data request timed out, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                else:
+                    raise
+        raise last_error
 
     def download_photos(self, people_with_photos, photos_dir, people_type="photos", limit=None):
         base_url = f"{self.base_url}/download/secure/cdn/full/"
