@@ -1,0 +1,15 @@
+services:
+  compass-photo-retrieval:
+    build: .
+    image: compass-photo-retrieval:latest
+    env_file: .env
+    environment:
+      - COMPASS_USERNAME=${COMPASS_USERNAME}
+      - COMPASS_PASSWORD=${COMPASS_PASSWORD}
+      - COMPASS_BASE_URL=${COMPASS_BASE_URL}
+      # App writes here; volume below mounts your folder into the container
+      - PHOTOS_DIR=/app/photos
+    volumes:
+      # Your folder: set PHOTOS_DIR in .env to your host path (e.g. /home/me/compass_photos)
+      - ${PHOTOS_DIR:-./photos}:/app/photos
+    restart: "no"
