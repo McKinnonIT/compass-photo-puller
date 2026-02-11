@@ -5,7 +5,10 @@ import json
 import os
 from datetime import datetime
 
+import requests
 from compass_photo import CompassPhoto
+
+HC_PING_URL = "https://hc-ping.com/1e44f4d1-6408-4162-9e11-460b917e020c"
 
 
 def main():
@@ -75,3 +78,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    try:
+        requests.get(HC_PING_URL, timeout=10)
+        print("Healthcheck ping sent.")
+    except Exception as e:
+        print(f"Healthcheck ping failed: {e}")
