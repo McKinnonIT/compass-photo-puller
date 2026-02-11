@@ -50,32 +50,72 @@ class CompassPhoto:
                 return False, existing_file
         return True, existing_files[0] if existing_files else None
 
-    def get_authenticated_session(self):
-        base_url = self.base_url
+    def get_authenticated_session(self, max_retries=3, retry_delays=(5, 15, 30), initial_delay=3, post_delay=2):
+        base_url = self.base_url.rstrip("/")
         session = cloudscraper.create_scraper()
         login_url = f"{base_url}/login.aspx?sessionstate=disabled"
-        login_get_response = session.get(login_url, timeout=15)
-        login_get_response.raise_for_status()
-        soup = BeautifulSoup(login_get_response.text, 'html.parser')
-        form = soup.find('form')
+
+        # Brief wait before first request (reduces WAF/bot detection)
+        if initial_delay:
+            print(f"  Waiting {initial_delay}s before login page...")
+            time.sleep(initial_delay)
+
+        # Retry GET login page (403/429 common from WAF or rate-limit in Docker/cloud)
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                login_get_response = session.get(login_url, timeout=15)
+                login_get_response.raise_for_status()
+                break
+            except Exception as e:
+                last_error = e
+                status = getattr(e, "response", None) and getattr(e.response, "status_code", None)
+                if attempt < max_retries - 1 and status in (403, 429):
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    print(f"  Login page returned {status}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+
+        # Wait after loading login page before POST (more human-like)
+        if post_delay:
+            time.sleep(post_delay)
+
+        soup = BeautifulSoup(login_get_response.text, "html.parser")
+        form = soup.find("form")
         if not form:
             raise Exception("No login form found")
         payload = {}
-        for input_field in form.find_all('input'):
-            name = input_field.get('name')
-            value = input_field.get('value', '')
+        for input_field in form.find_all("input"):
+            name = input_field.get("name")
+            value = input_field.get("value", "")
             if name:
                 payload[name] = value
-        payload['username'] = self.username
-        payload['password'] = self.password
+        payload["username"] = self.username
+        payload["password"] = self.password
         login_headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
             "Referer": login_url,
-            "Origin": base_url
+            "Origin": base_url,
         }
-        r = session.post(login_url, data=payload, headers=login_headers, timeout=15)
-        r.raise_for_status()
+
+        # Retry POST login (same 403/429 handling)
+        for attempt in range(max_retries):
+            try:
+                r = session.post(login_url, data=payload, headers=login_headers, timeout=15)
+                r.raise_for_status()
+                break
+            except Exception as e:
+                last_error = e
+                status = getattr(e, "response", None) and getattr(e.response, "status_code", None)
+                if attempt < max_retries - 1 and status in (403, 429):
+                    wait = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    print(f"  Login POST returned {status}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+
         if not ("Home | Compass" in r.text or "productNavBar" in r.text or "Compass.mfeConfig" in r.text):
             raise Exception("Login failed - no authenticated content found")
         return session
