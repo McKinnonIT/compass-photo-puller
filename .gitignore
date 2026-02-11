@@ -1,9 +1,11 @@
 # Compass photos directory
 compass_photos/
+photos/
 
 # API response files
 *_response.json
 *_response_pretty.json
+all_photos_urls.json
 
 # Environment variables
 .env
