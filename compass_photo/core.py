@@ -466,9 +466,12 @@ class CompassPhoto:
         print("=" * 60)
         print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         start_time = datetime.now()
-        staff_results = self.get_staff_photos(limit=staff_limit, custom_dir=staff_dir, download=download)
+        # Auth once, then reuse session for staff and students
+        print("Authenticating with Compass...")
+        self.session = self.get_authenticated_session()
+        staff_results = self.get_staff_photos(limit=staff_limit, custom_dir=staff_dir, download=download, use_existing_session=True)
         self._human_delay(5, 2)  # Pause between staff and student phases (human-like)
-        student_results = self.get_student_photos(limit=student_limit, custom_dir=student_dir, save_debug=save_debug, download=download)
+        student_results = self.get_student_photos(limit=student_limit, custom_dir=student_dir, save_debug=save_debug, download=download, use_existing_session=True)
         end_time = datetime.now()
         duration = end_time - start_time
         print("\n" + "=" * 50)

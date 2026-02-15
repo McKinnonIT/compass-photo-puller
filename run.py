@@ -3,7 +3,6 @@
 
 import json
 import os
-from datetime import datetime
 
 import requests
 from compass_photo import CompassPhoto
@@ -17,44 +16,16 @@ def main():
     photos_dir = os.environ.get("PHOTOS_DIR", "photos")
 
     compass = CompassPhoto()
-
     print(f"Fetching and downloading ALL photos to {photos_dir}/...")
-    start_time = datetime.now()
-
-    # Auth once, then get staff and students with the same session
-    print("Authenticating with Compass...")
-    compass.session = compass.get_authenticated_session()
-
-    print("Getting staff...")
-    staff_results = compass.get_staff_photos(
+    result = compass.get_all_photos(
         download=True,
-        custom_dir=photos_dir,
-        use_existing_session=True,
-    )
-    compass._human_delay(5, 2)  # Pause before student phase (human-like)
-    print("Getting students...")
-    student_results = compass.get_student_photos(
-        download=True,
-        custom_dir=photos_dir,
-        use_existing_session=True,
+        staff_dir=photos_dir,
+        student_dir=photos_dir,
     )
 
-    end_time = datetime.now()
-    duration = end_time - start_time
-
-    # Build combined result (same shape as get_all_photos when download=True)
-    staff_map = staff_results.get("staff_map", staff_results) if isinstance(staff_results, dict) else staff_results
-    student_map = student_results.get("student_map", student_results) if isinstance(student_results, dict) else student_results
-    photos = {**staff_map, **student_map}
-    staff_stats = staff_results.get("download_stats", {}) if isinstance(staff_results, dict) else {}
-    student_stats = student_results.get("download_stats", {}) if isinstance(student_results, dict) else {}
-    download_stats = {
-        "total_processed": staff_stats.get("total_processed", 0) + student_stats.get("total_processed", 0),
-        "downloaded": staff_stats.get("downloaded", 0) + student_stats.get("downloaded", 0),
-        "updated": staff_stats.get("updated", 0) + student_stats.get("updated", 0),
-        "skipped": staff_stats.get("skipped", 0) + student_stats.get("skipped", 0),
-        "failed": staff_stats.get("failed", 0) + student_stats.get("failed", 0),
-    }
+    duration = result.get("duration", "N/A")
+    photos = result.get("photos", {})
+    download_stats = result.get("download_stats", {})
 
     total = len(photos)
     print(f"\nTotal photos: {total}")
@@ -67,7 +38,6 @@ def main():
         for i, (code, url) in enumerate(list(photos.items())[:3]):
             print(f"  {code}: {url[:60]}...")
 
-    # Optional: write full result to JSON for inspection (duration may be timedelta → str for JSON)
     out_path = "all_photos_urls.json"
     duration_str = str(duration) if duration is not None else "N/A"
     with open(out_path, "w") as f:
